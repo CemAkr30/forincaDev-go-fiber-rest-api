@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -37,6 +39,11 @@ type UserCreateResponse struct {
 	Age       int32  `json:"age" validate:"required"`
 }
 
+type UserResponseList struct {
+	UserCreateResponse []UserCreateResponse `json:"data"`
+	Count              int32                `json:"count"`
+}
+
 type CustomValidationError struct {
 	HasError bool
 	Field    string
@@ -64,6 +71,21 @@ func Validate(data interface{}) []CustomValidationError {
 
 	return customValidationError
 }
+
+func GenerateUUID() string {
+	u := make([]byte, 16)
+	_, err := rand.Read(u)
+	if err != nil {
+		return ""
+	}
+
+	u[8] = (u[8] | 0x80) & 0xBF // what does this do?
+	u[6] = (u[6] | 0x40) & 0x4F // what does this do?
+
+	return hex.EncodeToString(u)
+}
+
+var userCreateResponseList []UserCreateResponse
 
 func main() {
 
@@ -133,7 +155,6 @@ func main() {
 	app.Post("/user", func(ctx *fiber.Ctx) error {
 
 		var userCreateResponse UserCreateResponse
-		uid := ctx.Get("X-CorrelationId")
 
 		fmt.Printf("hello my first post endpoint\n")
 		var request UserCreateRequest
@@ -161,15 +182,29 @@ func main() {
 			return ctx.Status(http.StatusBadRequest).JSON(errorResponse)
 		}
 
-		userCreateResponse.UID = uid
+		userCreateResponse.UID = GenerateUUID()
 		userCreateResponse.FirstName = request.FirstName
 		userCreateResponse.LastName = request.LastName
 		userCreateResponse.Email = request.Email
 		userCreateResponse.Age = request.Age
 
+		userCreateResponseList = append(userCreateResponseList, userCreateResponse)
+
 		responseMessage := fmt.Sprintf("%s User created successfully\n", request.FirstName)
 		fmt.Printf(responseMessage)
 		return ctx.Status(http.StatusOK).JSON(userCreateResponse)
+	})
+
+	app.Get("/user", func(ctx *fiber.Ctx) error {
+		var userResponseList UserResponseList
+		if userCreateResponseList == nil && len(userCreateResponseList) == 0 {
+			return ctx.Status(http.StatusNotFound).JSON("There is no user")
+		}
+
+		userResponseList.UserCreateResponse = userCreateResponseList
+		userResponseList.Count = int32(len(userCreateResponseList))
+
+		return ctx.Status(http.StatusOK).JSON(userResponseList)
 	})
 
 	err := app.Listen(":3000")
